@@ -68,19 +68,36 @@ async def lifespan(app: FastAPI):
     global api
     try:
         api = TikTokApi()
-        ms_tokens = [MS_TOKEN] if MS_TOKEN else None
 
-        # Use headless=new via browser args for better bot avoidance
-        browser_args = ["--headless=new", "--no-sandbox", "--disable-setuid-sandbox"]
-        if os.getenv("DISPLAY"):
-            browser_args = []  # Use regular headless when DISPLAY is set
+        # Build ms_tokens from env
+        ms_tokens = []
+        if MS_TOKEN:
+            ms_tokens = [MS_TOKEN]
+        extra_token = os.getenv("MS_TOKEN_WWW")
+        if extra_token and extra_token != MS_TOKEN:
+            ms_tokens.append(extra_token)
+
+        # Chromium with stealth args — xvfb provides the display
+        display_set = bool(os.getenv("DISPLAY"))
+        extra_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-web-security",
+            "--disable-features=IsolateOrigins,site-per-process",
+            "--no-first-run",
+            "--no-default-browser-check",
+        ]
+        if not display_set:
+            extra_args.append("--headless=new")
 
         await api.create_sessions(
             num_sessions=NUM_SESSIONS,
-            headless=not bool(os.getenv("DISPLAY")),
-            ms_tokens=ms_tokens,
+            headless=False,  # xvfb handles the display
+            ms_tokens=ms_tokens if ms_tokens else None,
+            browser="chromium",
             sleep_after=5,
-            override_browser_args=browser_args,
+            override_browser_args=extra_args,
             suppress_resource_load_types=["image", "stylesheet", "font", "media"],
             allow_partial_sessions=True,
             min_sessions=1,
