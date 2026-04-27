@@ -1,0 +1,172 @@
+{%- liquid
+  assign source = section.settings.source | default: 'user'
+  assign username = section.settings.username | default: 'soetsopains'
+  assign hashtag = section.settings.hashtag | default: ''
+  assign video_count = section.settings.video_count | default: 8
+  assign api_base = section.settings.api_base | default: 'http://socandyshopfr:3100/api'
+  assign link_target = section.settings.link_target | default: '_blank'
+  assign heading = section.settings.heading | default: 'Nos vidéos TikTok'
+  assign show_header = section.settings.show_header
+  assign tiktok_url = section.settings.tiktok_profile_url | default: 'https://www.tiktok.com/@soetsopains'
+-%}
+
+{{ 'tiktok-feed.css' | asset_url | stylesheet_tag }}
+
+<section
+  id="tiktok-feed-{{ section.id }}"
+  class="tiktok-feed color-{{ section.settings.color_scheme }} gradient"
+  data-api-base="{{ api_base | escape }}"
+  data-username="{{ username | escape }}"
+  data-count="{{ video_count }}"
+  data-source="{{ source }}"
+  data-hashtag="{{ hashtag | escape }}"
+  data-link-target="{{ link_target }}"
+>
+  <div class="page-width">
+    {%- if show_header -%}
+      <div class="tiktok-feed__header">
+        <h2 class="tiktok-feed__title">
+          <svg class="tiktok-feed__title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.34 6.34 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.13 8.13 0 0 0 4.77 1.52V6.76a4.85 4.85 0 0 1-1-.07z" fill="currentColor"/></svg>
+          {{ heading }}
+        </h2>
+        <a href="{{ tiktok_url }}" target="_blank" rel="noopener" class="tiktok-feed__link">
+          Voir tout
+          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M5.88 4.12L13.76 12l-7.88 7.88L8 22l10-10L8 2z"/></svg>
+        </a>
+      </div>
+    {%- endif -%}
+
+    <div class="tiktok-feed__grid">
+      <!-- Populated by JavaScript -->
+    </div>
+
+    <div class="tiktok-feed__loading" style="display:none;">
+      Chargement des vidéos TikTok...
+    </div>
+
+    <div class="tiktok-feed__error" style="display:none;">
+      <!-- Error message set by JS -->
+    </div>
+  </div>
+</section>
+
+<script src="{{ 'tiktok-feed.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "TikTok Feed",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "t:sections.all.colors.label",
+      "default": "scheme-1"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_header",
+      "label": "Afficher l'en-tête",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Titre",
+      "default": "Nos vidéos TikTok"
+    },
+    {
+      "type": "select",
+      "id": "source",
+      "label": "Source des vidéos",
+      "options": [
+        { "value": "user", "label": "Vidéos du profil" },
+        { "value": "trending", "label": "Tendances TikTok" },
+        { "value": "hashtag", "label": "Hashtag spécifique" }
+      ],
+      "default": "user"
+    },
+    {
+      "type": "text",
+      "id": "username",
+      "label": "Nom d'utilisateur TikTok",
+      "default": "soetsopains",
+      "info": "Utilisé quand la source est 'Vidéos du profil'"
+    },
+    {
+      "type": "text",
+      "id": "hashtag",
+      "label": "Hashtag (sans #)",
+      "info": "Utilisé quand la source est 'Hashtag spécifique'"
+    },
+    {
+      "type": "range",
+      "id": "video_count",
+      "min": 4,
+      "max": 20,
+      "step": 2,
+      "default": 8,
+      "label": "Nombre de vidéos"
+    },
+    {
+      "type": "url",
+      "id": "tiktok_profile_url",
+      "label": "URL du profil TikTok"
+    },
+    {
+      "type": "text",
+      "id": "api_base",
+      "label": "URL de l'API backend",
+      "default": "http://socandyshopfr:3100/api",
+      "info": "Ne changez que si le backend a une URL différente"
+    },
+    {
+      "type": "select",
+      "id": "link_target",
+      "label": "Ouvrir les liens TikTok",
+      "options": [
+        { "value": "_blank", "label": "Nouvel onglet" },
+        { "value": "_self", "label": "Même onglet" }
+      ],
+      "default": "_blank"
+    },
+    {
+      "type": "header",
+      "content": "Padding"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_top",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_bottom",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "TikTok Feed",
+      "settings": {
+        "show_header": true,
+        "heading": "Nos vidéos TikTok",
+        "source": "user",
+        "username": "soetsopains",
+        "video_count": 8
+      }
+    }
+  ]
+}
+{% endschema %}
