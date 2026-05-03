@@ -194,8 +194,6 @@ async def _check_live_via_httpx() -> tuple[bool, int, str]:
         logger.info(f"HTTPS fetch OK — {len(html)} bytes, status={response.status_code}")
 
         # Extract from HTML without a browser
-        import re
-
         # 1. Page title
         title_match = re.search(r"<title>(.*?)</title>", html, re.DOTALL)
         page_title = title_match.group(1) if title_match else ""
@@ -247,61 +245,6 @@ async def _check_live_via_httpx() -> tuple[bool, int, str]:
     except Exception as e:
         logger.warning(f"HTTPX live check failed: {e}", exc_info=True)
         return (False, 0, "")
-
-
-async def _check_live_via_fetch(endpoint: str, label: str) -> tuple[bool, int, str]:
-    """
-    Strategy 2: Use run_fetch_script to make a direct fetch to a TikTok API endpoint
-    through the browser session (with proper cookies/headers).
-    """
-    if not api:
-        return (False, 0, "")
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": LIVE_URL,
-        "Origin": "https://www.tiktok.com",
-    }
-
-    try:
-        result = await api.run_fetch_script(endpoint, headers=headers)
-        logger.info(f"Fetch [{label}] raw result type: {type(result).__name__}")
-
-        # run_fetch_script returns text from .text(), so parse JSON
-        if isinstance(result, str):
-            try:
-                data = json.loads(result)
-            except json.JSONDecodeError:
-                logger.info(f"Fetch [{label}] returned non-JSON: {result[:500]}")
-                return (False, 0, "")
-        elif isinstance(result, dict):
-            data = result
-        else:
-            logger.info(f"Fetch [{label}] unexpected type: {type(result).__name__}")
-            return (False, 0, "")
-
-        logger.info(f"Fetch [{label}] response keys: {list(data.keys())[:20]}")
-        logger.info(f"Fetch [{label}] response (first 500): {json.dumps(data)[:500]}")
-
-        # Try to extract live info from common response structures
-        is_live, viewers, title = _parse_live_response(data)
-        if is_live:
-            return (is_live, viewers, title)
-
-        return (False, 0, "")
-
-    except Exception as e:
-        logger.warning(f"Fetch [{label}] failed: {e}", exc_info=True)
-        return (False, 0, "")
-
-
-def _parse_live_response(data: dict) -> tuple[bool, int, str]:
-    """Try to extract live info from any response dict structure."""
-    is_live = False
-    viewers = 0
-    title = ""
 
     # Pattern 1: LiveRoomInfo with status==2
     if "LiveRoomInfo" in data:
@@ -364,33 +307,12 @@ async def _refresh_live_status():
         # Use the last known avatar
         avatar_url = cached_live_status.get("avatar_url", "")
 
-    # Try multiple live check strategies (each independent)
-    is_live = False
-    viewer_count = 0
-    title = ""
-
-    # Strategy A: Direct live endpoints via browser fetch
-    live_endpoints = [
-        "/api/live/detail/",
-        "/api/live/room/",
-        "/api/live/",
-    ]
-
-    for endpoint_suffix in live_endpoints:
-        if not is_live:
-            endpoint = f"https://www.tiktok.com{endpoint_suffix}?aid=1988&uniqueId={SHOP_HANDLE}"
-            try:
-                is_live, viewer_count, title = await _check_live_via_fetch(endpoint, endpoint_suffix.strip("/"))
-            except Exception as e:
-                logger.debug(f"Fetch strategy '{endpoint_suffix}' failed: {e}")
-
-    # Strategy B: Fetch live page HTML via httpx (browserless)
-    if not is_live:
-        logger.info("API fetch didn't detect live, trying browserless httpx...")
-        try:
-            is_live, viewer_count, title = await _check_live_via_httpx()
-        except Exception as e:
-            logger.debug(f"HTTPX strategy failed: {e}")
+    # Browserless httpx check (the only strategy that works)
+    try:
+        is_live, viewer_count, title = await _check_live_via_httpx()
+    except Exception as e:
+        logger.debug(f"httpx live check failed: {e}")
+        is_live, viewer_count, title = False, 0, ""
 
     cached_live_status = {
         "live": is_live,
@@ -670,36 +592,9 @@ async def _get_user_videos(username: str, count: int = 12) -> list[VideoInfo]:
     if not api or not api.sessions:
         raise HTTPException(status_code=503, detail="TikTokApi not ready")
 
-    logger.info(f"Video fetch requested for @{username} (count={count})")
-    logger.info("Note: TikTok blocks user video endpoints for headless sessions")
-
-    # Attempt 1: Try TikTokApi library (will likely fail with EmptyResponseException)
-    try:
-        user = api.user(username=username)
-        videos = []
-        i = 0
-        async for video in user.videos(count=count):
-            if i >= count:
-                break
-            videos.append(_video_to_info(video))
-            i += 1
-        if videos:
-            logger.info(f"TikTokApi returned {len(videos)} videos")
-            return videos
-    except Exception as e:
-        logger.debug(f"TikTokApi user.videos failed (expected): {e}")
-
-    # Attempt 2: DOM scraping fallback (limited success on headless)
-    try:
-        videos = await _scrape_user_videos(username, count=count)
-        if videos:
-            logger.info(f"DOM scraping returned {len(videos)} videos")
-            return videos
-    except Exception as e:
-        logger.debug(f"DOM scraping failed: {e}")
-
-    # Graceful fallback — empty list with logging
-    logger.info("Returning empty video list (TikTok bot detection limitation)")
+    # TikTok blocks personalized endpoints for headless sessions.
+    # Known limitation — returning empty list gracefully.
+    logger.debug(f"Video fetch for @{username}: blocked by TikTok bot detection")
     return []
 
 
@@ -954,95 +849,10 @@ async def get_hashtag_videos(tag: str, count: int = 12):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/video/{video_id}", response_model=VideoInfo)
+@app.get("/api/video/{video_id}")
 async def get_video_info(video_id: str):
     """Get detailed info about a specific video."""
-    _verify_api()
-    try:
-        return VideoInfo(id="not_implemented_directly", url="")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ── Debug Endpoint ────────────────────────────────────────
-@app.get("/api/debug/live")
-async def debug_live():
-    """Debug endpoint: show raw live page data."""
-    if not api:
-        return {"error": "No API instance"}
-
-    results = {}
-
-    # Try page navigation
-    try:
-        _, session = await api._get_valid_session_index()
-    except Exception as e:
-        results["session_error"] = str(e)
-        return results
-
-    # Navigate to live page
-    try:
-        await session.page.goto(LIVE_URL, wait_until="domcontentloaded", timeout=30000)
-        await asyncio.sleep(3)
-
-        title = await session.page.title()
-        results["page_title"] = title
-
-        # Get all script tags content
-        scripts = await session.page.evaluate("""
-            () => {
-                const results = {};
-                const scripts = document.querySelectorAll('script');
-                for (const s of scripts) {
-                    const text = s.textContent || '';
-                    const id = s.id || 'no-id';
-                    // Only capture non-empty scripts
-                    if (text.length > 50) {
-                        results[id] = {
-                            type: s.type || 'unknown',
-                            length: text.length,
-                            preview: text.substring(0, 300)
-                        };
-                    }
-                }
-                return results;
-            }
-        """)
-        results["scripts"] = scripts
-
-        # Body text preview
-        body_text = await session.page.evaluate("() => document.body.innerText.substring(0, 1000)")
-        results["body_text"] = body_text
-
-        # Check for specific live indicators
-        live_indicators = await session.page.evaluate("""
-            () => {
-                const html = document.documentElement.innerHTML;
-                const checks = {
-                    hasLIVE: html.includes('LIVE'),
-                    has_live: html.includes('"live"'),
-                    hasIsLive: html.includes('isLive'),
-                    hasRoomId: /room_id|roomId|RoomId/.test(html),
-                    hasViewerCount: /viewer_count|viewerCount|viewer_count/.test(html),
-                    hasInLiveRoom: html.includes('InLiveRoom'),
-                    hasWatchNum: /watch_num|watchingCount/.test(html),
-                };
-                // Also check all meta tags
-                const metas = {};
-                document.querySelectorAll('meta').forEach(m => {
-                    if (m.getAttribute('property') || m.getAttribute('name')) {
-                        metas[m.getAttribute('property') || m.getAttribute('name')] = m.getAttribute('content') || '';
-                    }
-                });
-                return { checks, metas };
-            }
-        """)
-        results["live_indicators"] = live_indicators
-
-    except Exception as e:
-        results["nav_error"] = str(e)
-
-    return results
+    raise HTTPException(status_code=501, detail="Single video fetch not implemented")
 
 
 # ── Entry Point ───────────────────────────────────────────
