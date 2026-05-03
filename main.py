@@ -40,6 +40,9 @@ from pydantic import BaseModel
 # ── TikTok API ────────────────────────────────────────────
 from TikTokApi import TikTokApi
 
+# ── Discord Alerts ──────────────────────────────────────────
+import discord_alerts
+
 # ── Logging ───────────────────────────────────────────────
 log_path = os.path.expanduser("~/tiktok-backend/backend.log")
 logging.basicConfig(
@@ -128,6 +131,12 @@ async def lifespan(app: FastAPI):
 
     # Start background live-status poller
     poller_task = asyncio.create_task(_background_live_poller())
+
+    # Discord startup alert
+    try:
+        await discord_alerts.alert_backend_started()
+    except Exception as e:
+        logger.debug(f"Discord startup alert failed: {e}")
 
     yield
 
@@ -324,6 +333,19 @@ async def _refresh_live_status():
     logger.info(f"Live status updated: live={is_live}, viewers={viewer_count}")
     if is_live:
         logger.info(f"🎉 LIVE DETECTED! Title: {title}")
+
+    # ── Discord Alert on state change ─────────────────────────
+    try:
+        await discord_alerts.alert_tiktok_live(
+            live=is_live,
+            viewer_count=viewer_count,
+            title=title,
+            avatar_url=avatar_url,
+            profile_url=PROFILE_URL,
+            live_url=LIVE_URL,
+        )
+    except Exception as e:
+        logger.debug(f"Discord live alert failed: {e}")
 
 
 # ── FastAPI App ───────────────────────────────────────────
