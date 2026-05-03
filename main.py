@@ -561,35 +561,93 @@ async def _scrape_user_info(username: str) -> dict:
             except Exception:
                 pass
 
+        # Try to extract full user info from __DEFAULT_SCOPE__ JSON (once)
+        scope_data: dict = {}
+        try:
+            scope_match = re.search(
+                r'<script[^\u003e]*\u003e\s*(\{[^\u003c]*"__DEFAULT_SCOPE__"[^\u003c]*\})\s*\u003c/script\u003e',
+                html, re.DOTALL
+            )
+            if scope_match:
+                scope_data = json.loads(scope_match.group(1))
+        except Exception:
+            scope_data = {}
+
         def _re(pattern, default=""):
             m = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
             return m.group(1).strip() if m else default
 
+        # --- avatar: try og:image meta, then __DEFAULT_SCOPE__ JSON ---
         avatar = _re(r'<meta[^\u003e]+property="og:image"[^\u003e]+content="([^"]+)"')
-        nickname = await tmp_page.title()
-        nickname = nickname.split("(@")[0].strip() if "(@" in nickname else nickname
+        if not avatar and scope_data:
+            try:
+                user = scope_data.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {}).get("user", {})
+                avatar = user.get("avatarLarger", user.get("avatarMedium", ""))
+            except Exception:
+                pass
+
+        # --- nickname, user_id, bio, verified from __DEFAULT_SCOPE__ if available ---
+        nickname = ""
+        user_id = ""
+        bio = ""
+        verified = False
+        if scope_data:
+            try:
+                user = scope_data.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {}).get("user", {})
+                nickname = user.get("nickname", "")
+                user_id = user.get("id", "")
+                bio = user.get("signature", "")
+                verified = user.get("verified", False)
+            except Exception:
+                pass
+
+        if not nickname:
+            nickname = await tmp_page.title()
+            nickname = nickname.split("(@")[0].strip() if "(@" in nickname else nickname
+
+        if not bio:
+            bio_el = await tmp_page.query_selector('[data-e2e="user-bio"]')
+            if bio_el:
+                bio = await bio_el.inner_text() or ""
+            if not bio:
+                bio = "No bio yet."
 
         body_text = await tmp_page.evaluate("() => document.body.innerText")
         follower_m = re.search(r"([0-9.,]+[KM]?)\s*[Ff]ollowers", body_text)
         following_m = re.search(r"([0-9.,]+[KM]?)\s*[Ff]ollowing", body_text)
         likes_m = re.search(r"([0-9.,]+[KM]?)\s*[Ll]ikes", body_text)
 
-        bio = ""
-        bio_el = await tmp_page.query_selector('[data-e2e="user-bio"]')
-        if bio_el:
-            bio = await bio_el.inner_text() or ""
+        # Try stats from __DEFAULT_SCOPE__ too
+        followers = 0
+        following = 0
+        likes = 0
+        if scope_data:
+            try:
+                stats = scope_data.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {}).get("stats", {})
+                followers = stats.get("followerCount", 0)
+                following = stats.get("followingCount", 0)
+                likes = stats.get("heartCount", 0)
+            except Exception:
+                pass
+
+        if not followers and follower_m:
+            followers = _parse_number(follower_m.group(1))
+        if not following and following_m:
+            following = _parse_number(following_m.group(1))
+        if not likes and likes_m:
+            likes = _parse_number(likes_m.group(1))
 
         return {
             "username": username,
-            "user_id": "",
-            "nickname": nickname,
+            "user_id": user_id,
+            "nickname": nickname or username,
             "bio": bio,
             "avatar": avatar,
-            "following": _parse_number(following_m.group(1)) if following_m else 0,
-            "followers": _parse_number(follower_m.group(1)) if follower_m else 0,
-            "likes": _parse_number(likes_m.group(1)) if likes_m else 0,
+            "following": following,
+            "followers": followers,
+            "likes": likes,
             "videos": 0,
-            "verified": False,
+            "verified": verified,
         }
     finally:
         await tmp_page.close()
@@ -756,8 +814,20 @@ async def _scrape_avatar(username: str) -> str:
             )
             await asyncio.sleep(1)
             html = await tmp_page.content()
+            # 1) og:image meta
             m = re.search(r'<meta[^\u003e]+property="og:image"[^\u003e]+content="([^"]+)"', html)
-            return m.group(1) if m else ""
+            if m:
+                return m.group(1)
+            # 2) __DEFAULT_SCOPE__ JSON
+            scope_m = re.search(
+                r'<script[^\u003e]*\u003e\s*(\{[^\u003c]*"__DEFAULT_SCOPE__"[^\u003c]*\})\s*\u003c/script\u003e',
+                html, re.DOTALL
+            )
+            if scope_m:
+                scope_data = json.loads(scope_m.group(1))
+                user = scope_data.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {}).get("user", {})
+                return user.get("avatarLarger", user.get("avatarMedium", ""))
+            return ""
         finally:
             await tmp_page.close()
     except Exception as e:
