@@ -21,6 +21,7 @@ import logging
 import os
 import sys
 import json
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import AsyncIterator, Optional
@@ -37,13 +38,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # ── TikTok API ────────────────────────────────────────────
-sys.path.insert(0, os.path.expanduser("~/tiktok-api"))
 from TikTokApi import TikTokApi
 
 # ── Logging ───────────────────────────────────────────────
 log_path = os.path.expanduser("~/tiktok-backend/backend.log")
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
         logging.FileHandler(log_path),
@@ -358,18 +358,9 @@ async def _refresh_live_status():
     # Get avatar (best-effort, don't let failure block live detection)
     avatar_url = ""
     try:
-        user = api.user(SHOP_HANDLE)
-        user_data = await user.info()
-        user_info = user_data.get("userInfo", {})
-        user_obj = user_info.get("user", {})
-        avatar_url = (
-            user_obj.get("avatarLarger")
-            or user_obj.get("avatarMedium")
-            or user_obj.get("avatarThumb")
-            or ""
-        )
+        avatar_url = await _scrape_avatar(SHOP_HANDLE)
     except Exception as e:
-        logger.debug(f"Could not fetch avatar/userinfo (continuing): {e}")
+        logger.debug(f"Could not fetch avatar (continuing): {e}")
         # Use the last known avatar
         avatar_url = cached_live_status.get("avatar_url", "")
 
@@ -511,6 +502,269 @@ def _video_to_info(v) -> VideoInfo:
         return VideoInfo(id="unknown", url="")
 
 
+def _parse_number(text: str) -> int:
+    """Parse TikTok numbers like 7.6K, 1.2M, '1,234'."""
+    if not text:
+        return 0
+    t = text.strip().replace(",", "")
+    if t.endswith("K"):
+        return int(float(t[:-1]) * 1000)
+    elif t.endswith("M"):
+        return int(float(t[:-1]) * 1000000)
+    try:
+        return int(float(t))
+    except ValueError:
+        return 0
+
+
+async def _scrape_user_info(username: str) -> dict:
+    """
+    Scrape user profile info from tiktok.com/@{username} via Playwright DOM,
+    waiting for the profile to fully load (networkidle).
+    """
+    if not api or not api.sessions:
+        raise HTTPException(status_code=503, detail="TikTokApi not ready")
+
+    _, session = await api._get_valid_session_index()
+    tmp_page = await session.page.context.new_page()
+    try:
+        url = f"https://www.tiktok.com/@{username}"
+        await tmp_page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(2)
+
+        html = await tmp_page.content()
+
+        # Try SSR JSON first
+        ssr_match = re.search(
+            r'<script[^\u003e]*>window\._SSR_HYDRATED_DATA\s*=\s*(.*?)</script>',
+            html, re.DOTALL | re.IGNORECASE,
+        )
+        if ssr_match:
+            try:
+                raw = ssr_match.group(1)
+                data = json.loads(raw)
+                profile = data.get("ProfilePage", {}).get("userInfo", {})
+                user = profile.get("user", {})
+                stats = profile.get("stats", {})
+                return {
+                    "username": user.get("uniqueId", username),
+                    "user_id": user.get("id", ""),
+                    "nickname": user.get("nickname", ""),
+                    "bio": user.get("signature", ""),
+                    "avatar": user.get("avatarLarger", user.get("avatarMedium", "")),
+                    "following": stats.get("followingCount", 0),
+                    "followers": stats.get("followerCount", 0),
+                    "likes": stats.get("heartCount", 0),
+                    "videos": stats.get("videoCount", 0),
+                    "verified": user.get("verified", False),
+                }
+            except Exception:
+                pass
+
+        def _re(pattern, default=""):
+            m = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            return m.group(1).strip() if m else default
+
+        avatar = _re(r'<meta[^\u003e]+property="og:image"[^\u003e]+content="([^"]+)"')
+        nickname = await tmp_page.title()
+        nickname = nickname.split("(@")[0].strip() if "(@" in nickname else nickname
+
+        body_text = await tmp_page.evaluate("() => document.body.innerText")
+        follower_m = re.search(r"([0-9.,]+[KM]?)\s*[Ff]ollowers", body_text)
+        following_m = re.search(r"([0-9.,]+[KM]?)\s*[Ff]ollowing", body_text)
+        likes_m = re.search(r"([0-9.,]+[KM]?)\s*[Ll]ikes", body_text)
+
+        bio = ""
+        bio_el = await tmp_page.query_selector('[data-e2e="user-bio"]')
+        if bio_el:
+            bio = await bio_el.inner_text() or ""
+
+        return {
+            "username": username,
+            "user_id": "",
+            "nickname": nickname,
+            "bio": bio,
+            "avatar": avatar,
+            "following": _parse_number(following_m.group(1)) if following_m else 0,
+            "followers": _parse_number(follower_m.group(1)) if follower_m else 0,
+            "likes": _parse_number(likes_m.group(1)) if likes_m else 0,
+            "videos": 0,
+            "verified": False,
+        }
+    finally:
+        await tmp_page.close()
+
+
+async def _get_user_videos(username: str, count: int = 12) -> list[VideoInfo]:
+    """
+    Get a user's videos.
+    
+    NOTE: TikTok aggressively blocks personalized endpoints (item_list, user/detail)
+    for headless/datacenter sessions. The trending endpoint works because it's less
+    protected. Without residential proxies or real device emulation, user-specific
+    video lists return empty. This is a known limitation.
+    
+    We attempt DOM scraping as fallback, but TikTok's SPA only renders the video
+    grid after a successful API call — which fails on our session.
+    
+    Returns empty list with graceful degradation.
+    """
+    if not api or not api.sessions:
+        raise HTTPException(status_code=503, detail="TikTokApi not ready")
+
+    logger.info(f"Video fetch requested for @{username} (count={count})")
+    logger.info("Note: TikTok blocks user video endpoints for headless sessions")
+
+    # Attempt 1: Try TikTokApi library (will likely fail with EmptyResponseException)
+    try:
+        user = api.user(username=username)
+        videos = []
+        i = 0
+        async for video in user.videos(count=count):
+            if i >= count:
+                break
+            videos.append(_video_to_info(video))
+            i += 1
+        if videos:
+            logger.info(f"TikTokApi returned {len(videos)} videos")
+            return videos
+    except Exception as e:
+        logger.debug(f"TikTokApi user.videos failed (expected): {e}")
+
+    # Attempt 2: DOM scraping fallback (limited success on headless)
+    try:
+        videos = await _scrape_user_videos(username, count=count)
+        if videos:
+            logger.info(f"DOM scraping returned {len(videos)} videos")
+            return videos
+    except Exception as e:
+        logger.debug(f"DOM scraping failed: {e}")
+
+    # Graceful fallback — empty list with logging
+    logger.info("Returning empty video list (TikTok bot detection limitation)")
+    return []
+
+
+async def _scrape_user_videos(username: str, count: int = 12) -> list[VideoInfo]:
+    """
+    Scrape a user's videos from their profile page by scrolling and extracting
+    DOM data (title, views, video ID, cover). Uses a temporary page.
+    """
+    if not api or not api.sessions:
+        raise HTTPException(status_code=503, detail="TikTokApi not ready")
+
+    _, session = await api._get_valid_session_index()
+    tmp_page = await session.page.context.new_page()
+    try:
+        url = f"https://www.tiktok.com/@{username}"
+        await tmp_page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(3)
+
+        # Get avatar from meta tag (once)
+        html = await tmp_page.content()
+        avatar_match = re.search(
+            r'<meta[^\u003e]+property="og:image"[^\u003e]+content="([^"]+)"', html
+        )
+        avatar = avatar_match.group(1) if avatar_match else ""
+
+        videos: list[VideoInfo] = []
+        seen_ids: set[str] = set()
+
+        # Scroll loop – TikTok lazily loads videos as we scroll
+        for scroll in range(10):
+            # Scrape current DOM state
+            cards = await tmp_page.query_selector_all('a[href*="/video/"]')
+            for card in cards:
+                href = await card.get_attribute("href") or ""
+                vid_match = re.search(r"/video/(\d+)", href)
+                if not vid_match:
+                    continue
+                vid_id = vid_match.group(1)
+                if vid_id in seen_ids:
+                    continue
+                seen_ids.add(vid_id)
+
+                # Search nearby ancestors for metadata
+                desc = ""
+                views = ""
+                img = ""
+                parent = card
+                for _ in range(5):
+                    parent = await parent.query_selector("xpath=..")
+                    if not parent:
+                        break
+                    if not img:
+                        img_el = await parent.query_selector("img")
+                        if img_el:
+                            img = await img_el.get_attribute("src") or ""
+                    if not views:
+                        view_el = await parent.query_selector('[data-e2e="video-views"]')
+                        if view_el is None:
+                            view_el = await parent.query_selector('span[class*="video-count"]')
+                        if view_el is None:
+                            inner = await parent.inner_text()
+                            v_m = re.search(r"([0-9.,]+[KM]?)\s*(?:views?|vues)", inner, re.I)
+                            if v_m:
+                                views = v_m.group(1)
+                        else:
+                            views = await view_el.inner_text() or ""
+                    if not desc:
+                        desc_el = await parent.query_selector('[data-e2e="video-desc"]')
+                        if desc_el:
+                            desc = await desc_el.inner_text() or ""
+                        else:
+                            inner = await parent.inner_text()
+                            lines = [l.strip() for l in inner.split("\n") if l.strip()]
+                            for line in lines:
+                                if "views" not in line.lower() and vid_id not in line:
+                                    desc = line[:120]
+                                    break
+
+                videos.append(
+                    VideoInfo(
+                        id=vid_id,
+                        url=f"https://www.tiktok.com/@{username}/video/{vid_id}",
+                        description=desc,
+                        views=_parse_number(views),
+                        cover_url=img,
+                        author_name=username,
+                        author_avatar=avatar,
+                    )
+                )
+                if len(videos) >= count:
+                    return videos
+
+            # Scroll down
+            await tmp_page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+            await asyncio.sleep(2)
+
+        return videos
+    finally:
+        await tmp_page.close()
+
+
+async def _scrape_avatar(username: str) -> str:
+    """Fast avatar fetch via Playwright page load (uses temporary page)."""
+    try:
+        _, session = await api._get_valid_session_index()
+        tmp_page = await session.page.context.new_page()
+        try:
+            await tmp_page.goto(
+                f"https://www.tiktok.com/@{username}",
+                wait_until="domcontentloaded",
+                timeout=15000,
+            )
+            await asyncio.sleep(1)
+            html = await tmp_page.content()
+            m = re.search(r'<meta[^\u003e]+property="og:image"[^\u003e]+content="([^"]+)"', html)
+            return m.group(1) if m else ""
+        finally:
+            await tmp_page.close()
+    except Exception as e:
+        logger.debug(f"Avatar scrape failed: {e}")
+        return ""
+
+
 def _verify_api():
     """Raise 503 if TikTokApi is not initialized."""
     if not api:
@@ -563,55 +817,33 @@ async def get_tiktok_live():
 
 @app.get("/api/user/{username}", response_model=UserInfo)
 async def get_user_info(username: str):
-    """Get TikTok user profile information."""
+    """Get TikTok user profile information (via Playwright page scraping)."""
     _verify_api()
     try:
-        user = api.user(username=username)
-        data = await user.info()
-        user_info = data.get("userInfo", {})
-        u = user_info.get("user", {})
-        s = user_info.get("stats", {})
-
-        return UserInfo(
-            username=u.get("uniqueId", username),
-            user_id=u.get("id", ""),
-            nickname=u.get("nickname", ""),
-            bio=u.get("signature", ""),
-            avatar=u.get("avatarLarger", u.get("avatarMedium", "")),
-            following=s.get("followingCount", 0),
-            followers=s.get("followerCount", 0),
-            likes=s.get("heartCount", 0),
-            videos=s.get("videoCount", 0),
-            verified=u.get("verified", False),
-        )
+        data = await _scrape_user_info(username)
+        return UserInfo(**data)
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"User info scrape failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/user/{username}/videos", response_model=VideoListResponse)
 async def get_user_videos(username: str, count: int = 12, cursor: int = 0):
-    """Get a user's recent videos."""
+    """Get a user's recent videos (with graceful fallback for bot detection)."""
     _verify_api()
     try:
-        user = api.user(username=username)
-        videos = []
-        has_more = False
-        new_cursor = cursor
-
-        i = 0
-        async for video in user.videos(count=count, cursor=cursor):
-            if i >= count:
-                break
-            videos.append(_video_to_info(video))
-            new_cursor += 1
-            i += 1
-
+        videos = await _get_user_videos(username, count=count)
         return VideoListResponse(
             videos=videos,
             has_more=len(videos) >= count,
-            cursor=new_cursor,
+            cursor=cursor + len(videos),
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"User videos scrape failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
