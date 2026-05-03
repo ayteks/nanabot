@@ -29,6 +29,21 @@ SESSION_DIR = os.path.expanduser("~/.hermes/sessions")
 DISCORD_CHANNEL = os.getenv("DISCORD_ALERTS_CHANNEL", "1499361259395485717")
 BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 
+# ── Topic → Channel routing ───────────────────────────────
+TOPIC_CHANNELS = {
+    "SoCandyShop": "1499361252445650984",   # #projects
+    "TikTok":      "1499361252445650984",
+    "Shopify":     "1499361252445650984",
+    "Backend":     "1499361265212981291",   # #coder
+    "Krain88":     "1499361277737304074",   # #research
+    "Thermal/CPU": "1499361284775477258",   # #system
+    "Systemd":     "1499361284775477258",
+    "Discord":     "1499361284775477258",
+    "Alerts":      "1499361284775477258",
+    "Livestream":  "1499361252445650984",
+}
+
+
 
 def _today_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -196,7 +211,7 @@ def build_digest() -> str:
     if not sessions_data:
         return ""
 
-    # ── Build markdown digest ───────────────────────────────
+    # ── Build combined digest for #updates ──────────────────
     date_str = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
     lines = [
         f"## 📋 Daily Digest — {date_str}",
@@ -216,27 +231,61 @@ def build_digest() -> str:
             lines.append(f"  • ⏳ Open: {sess['open'][0]}")
         lines.append("")
 
-    return "\n".join(lines)
+    combined = "\n".join(lines)
+
+    # ── Build per-topic mini-digests ────────────────────────
+    topic_digests: dict[str, list[str]] = {}
+    for sess in sessions_data:
+        ch = TOPIC_CHANNELS.get(sess["topic"])
+        if not ch:
+            continue
+        if ch not in topic_digests:
+            topic_digests[ch] = [f"**{sess['topic']}**  ({sess['msgs']} messages)"]
+        else:
+            topic_digests[ch].append(f"**{sess['topic']}**  ({sess['msgs']} messages)")
+        for a in sess["actions"][:5]:
+            topic_digests[ch].append(f"  • {a}")
+        if sess["files"]:
+            topic_digests[ch].append(f"  • 🗂️ {', '.join(sess['files'][:3])}")
+        if sess["open"]:
+            topic_digests[ch].append(f"  • ⏳ {sess['open'][0]}")
+        topic_digests[ch].append("")
+
+    return combined, topic_digests
 
 
-async def post_to_discord(content: str) -> bool:
+async def _send(channel_id: str, content: str) -> bool:
+    if not BOT_TOKEN:
+        return False
+    url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+    payload = {"content": content[:2000]}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            url,
+            headers={"Authorization": f"Bot {BOT_TOKEN}", "Content-Type": "application/json"},
+            json=payload,
+        )
+        if resp.status_code in (200, 201):
+            return True
+        return False
+
+
+async def post_to_discord(combined: str, topic_digests: dict[str, list[str]]) -> bool:
     if not BOT_TOKEN:
         print("[digest] DISCORD_BOT_TOKEN not set — skipping post", file=sys.stderr)
         return False
-    url = f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL}/messages"
-    payload = {
-        "content": content[:2000],  # Discord limit
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(url, headers={
-            "Authorization": f"Bot {BOT_TOKEN}",
-            "Content-Type": "application/json",
-        }, json=payload)
-        if resp.status_code in (200, 201):
-            print("[digest] Posted to Discord #updates")
-            return True
-        print(f"[digest] Discord post failed: {resp.status_code} {resp.text[:200]}", file=sys.stderr)
-        return False
+
+    ok = await _send(DISCORD_CHANNEL, combined)
+    if ok:
+        print("[digest] Posted combined digest to #updates")
+
+    for ch_id, lines in topic_digests.items():
+        body = "\n".join(lines)
+        if body.strip():
+            if await _send(ch_id, body):
+                print(f"[digest] Posted topic digest to channel {ch_id}")
+
+    return ok
 
 
 if __name__ == "__main__":
@@ -244,12 +293,12 @@ if __name__ == "__main__":
     parser.add_argument("--post", action="store_true", help="Post digest to Discord instead of stdout")
     args = parser.parse_args()
 
-    digest = build_digest()
-    if not digest:
+    combined, topics = build_digest()
+    if not combined:
         print("[digest] No sessions found for today.")
         sys.exit(0)
 
     if args.post:
-        asyncio.run(post_to_discord(digest))
+        asyncio.run(post_to_discord(combined, topics))
     else:
-        print(digest)
+        print(combined)
