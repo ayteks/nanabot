@@ -40,6 +40,13 @@ from pydantic import BaseModel
 # ── TikTok API ────────────────────────────────────────────
 from TikTokApi import TikTokApi
 
+# ── Live Chat Bot ───────────────────────────────────────────
+import live_chat_bot as chatbot
+import live_chat_bot_v2 as chatbot_v2
+
+# ── Discord Command Bot ────────────────────────────────────
+import discord_commands
+
 # ── Discord Alerts ──────────────────────────────────────────
 import discord_alerts
 
@@ -79,58 +86,119 @@ cached_live_status = {
 # ── Lifespan ──────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: create TikTok sessions. Shutdown: clean up."""
+    """Startup: create TikTok sessions (if enabled). Shutdown: clean up."""
     global api
-    try:
-        api = TikTokApi()
 
-        # Build ms_tokens from env
-        ms_tokens = []
-        if MS_TOKEN:
-            ms_tokens = [MS_TOKEN]
-        extra_token = os.getenv("MS_TOKEN_WWW")
-        if extra_token and extra_token != MS_TOKEN:
-            ms_tokens.append(extra_token)
+    if NUM_SESSIONS > 0:
+        try:
+            api = TikTokApi()
 
-        # Chromium with stealth args — xvfb provides the display
-        display_set = bool(os.getenv("DISPLAY"))
-        extra_args = [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-web-security",
-            "--disable-features=IsolateOrigins,site-per-process",
-            "--no-first-run",
-            "--no-default-browser-check",
-        ]
-        if not display_set:
-            extra_args.append("--headless=new")
+            # Build ms_tokens from env
+            ms_tokens = []
+            if MS_TOKEN:
+                ms_tokens = [MS_TOKEN]
+            extra_token = os.getenv("MS_TOKEN_WWW")
+            if extra_token and extra_token != MS_TOKEN:
+                ms_tokens.append(extra_token)
 
-        await api.create_sessions(
-            num_sessions=NUM_SESSIONS,
-            headless=False,  # xvfb handles the display
-            ms_tokens=ms_tokens if ms_tokens else None,
-            browser="chromium",
-            sleep_after=5,
-            override_browser_args=extra_args,
-            suppress_resource_load_types=["image", "stylesheet", "font", "media"],
-            allow_partial_sessions=True,
-            min_sessions=1,
-        )
-        session_count = len(api.sessions)
-        logger.info(f"TikTokApi ready — {session_count}/{NUM_SESSIONS} session(s) created")
+            # Chromium with stealth args — xvfb provides the display
+            display_set = bool(os.getenv("DISPLAY"))
+            extra_args = [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-web-security",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ]
+            if not display_set:
+                extra_args.append("--headless=new")
 
-        # Dump session headers for debugging
-        for i, s in enumerate(api.sessions):
-            logger.info(f"Session {i}: headers keys = {list((s.headers or {}).keys())}")
-            logger.info(f"Session {i}: params keys = {list((s.params or {}).keys())}")
+            await api.create_sessions(
+                num_sessions=NUM_SESSIONS,
+                headless=False,  # xvfb handles the display
+                ms_tokens=ms_tokens if ms_tokens else None,
+                browser="chromium",
+                sleep_after=5,
+                override_browser_args=extra_args,
+                suppress_resource_load_types=["image", "stylesheet", "font", "media"],
+                allow_partial_sessions=True,
+                min_sessions=1,
+            )
+            session_count = len(api.sessions)
+            logger.info(f"TikTokApi ready — {session_count}/{NUM_SESSIONS} session(s) created")
 
-    except Exception as e:
-        logger.error(f"Failed to init TikTokApi: {e}", exc_info=True)
+            # ── Inject TikTok auth cookies into all sessions ──────────
+            cookie_path = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+            if os.path.isfile(cookie_path):
+                try:
+                    import json
+                    with open(cookie_path, "r") as f:
+                        raw_cookies = json.load(f)
+                    normalized = []
+                    for c in raw_cookies:
+                        nc = {
+                            "name": c.get("name"),
+                            "value": c.get("value"),
+                            "domain": c.get("domain", ".tiktok.com"),
+                            "path": c.get("path", "/"),
+                        }
+                        if "expires" in c and c["expires"] not in (None, -1):
+                            nc["expires"] = int(c["expires"])
+                        if "sameSite" in c:
+                            ss = c["sameSite"]
+                            if ss in ("Strict", "Lax", "None"):
+                                nc["sameSite"] = ss
+                            elif str(ss).lower() in ("no_restriction", "unspecified"):
+                                nc["sameSite"] = "None"
+                        if "httpOnly" in c:
+                            nc["httpOnly"] = bool(c["httpOnly"])
+                        if "secure" in c:
+                            nc["secure"] = bool(c["secure"])
+                        normalized.append(nc)
+                    for i, s in enumerate(api.sessions):
+                        if s.page and not s.page.is_closed():
+                            await s.page.context.add_cookies(normalized)
+                            logger.info(f"Session {i}: injected {len(normalized)} auth cookies")
+                except Exception as e:
+                    logger.warning(f"Cookie injection failed: {e}")
+
+            # Dump session headers for debugging
+            for i, s in enumerate(api.sessions):
+                logger.info(f"Session {i}: headers keys = {list((s.headers or {}).keys())}")
+                logger.info(f"Session {i}: params keys = {list((s.params or {}).keys())}")
+
+        except Exception as e:
+            logger.error(f"Failed to init TikTokApi: {e}", exc_info=True)
+            api = None
+    else:
+        logger.info("TikTokApi sessions disabled (TIKTOK_SESSIONS=0) — running browserless mode")
         api = None
 
     # Start background live-status poller
     poller_task = asyncio.create_task(_background_live_poller())
+
+    # Start live chat bot v2 (if enabled)
+    try:
+        if os.getenv("BOT_ENABLED", "false").lower() == "true":
+            await chatbot_v2.start_bot()
+    except Exception as e:
+        logger.warning(f"Live chat bot v2 start failed: {e}")
+
+    # Start Discord command bot (if token available)
+    try:
+        await discord_commands.start_bot_command(
+            get_live_status=_get_cached_live_status,
+            get_bot_state=_get_cached_bot_state,
+            bot_control=_bot_control,
+            get_comments=_get_recent_comments,
+            get_logs=_get_log_tail,
+            restart=_restart_service,
+            set_handle=_set_target_handle,
+        )
+    except Exception as e:
+        logger.debug(f"Discord command bot start failed: {e}")
 
     # Discord startup alert
     try:
@@ -140,8 +208,19 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    # Stop Discord command bot
+    try:
+        await discord_commands.stop_bot_command()
+    except Exception:
+        pass
+
     poller_task.cancel()
-    if api:
+    # Stop chat bot v2 gracefully
+    try:
+        await chatbot_v2.stop_bot()
+    except Exception:
+        pass
+    if api and NUM_SESSIONS > 0:
         try:
             await api.close_sessions()
         except Exception:
@@ -161,34 +240,41 @@ async def _background_live_poller():
         await asyncio.sleep(LIVE_CHECK_INTERVAL)
 
 
+def _load_cookies_from_file() -> dict:
+    """Load TikTok cookies from tiktok_cookies.json — no Playwright needed."""
+    cookie_path = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+    if not os.path.isfile(cookie_path):
+        return {}
+    try:
+        with open(cookie_path, "r") as f:
+            raw = json.load(f)
+        if isinstance(raw, list):
+            return {c["name"]: c["value"] for c in raw if isinstance(c, dict) and "name" in c and "value" in c}
+        elif isinstance(raw, dict):
+            return raw
+    except Exception:
+        return {}
+    return {}
+
+
 async def _check_live_via_httpx() -> tuple[bool, int, str]:
     """
-    Strategy 1: Browserless live check — fetch HTML via httpx with Playwright
-    session cookies. No browser page load means:
-    - No audio playing through WSLg/FreeRDP
-    - We don't count as a real viewer
-    - Much faster (no 5s wait, no Playwright page lifecycle)
+    Browserless live check — uses cookies from file (no Playwright needed).
     """
-    if not api or not api.sessions:
+    cookie_jar = _load_cookies_from_file()
+
+    if not cookie_jar:
+        logger.warning("No cookie file found — cannot check live status")
         return (False, 0, "")
 
     try:
-        _, session = await api._get_valid_session_index()
-    except Exception:
-        logger.warning("No valid session for httpx live check")
-        return (False, 0, "")
-
-    try:
-        # Extract cookies from the Playwright session
-        pw_cookies = await session.page.context.cookies()
-        cookie_jar = {c["name"]: c["value"] for c in pw_cookies}
-
         headers = {
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
             " (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
             "Referer": "https://www.tiktok.com/",
+            "Origin": "https://www.tiktok.com",
         }
 
         async with httpx.AsyncClient(
@@ -241,7 +327,7 @@ async def _check_live_via_httpx() -> tuple[bool, int, str]:
             "not live" not in page_title.lower()
             and "offline" not in page_title.lower()
         )
-        enough_viewers = viewer_count >= 5
+        enough_viewers = viewer_count >= 20
         is_live = title_has_live and not_offline and enough_viewers
 
         if is_live:
@@ -335,17 +421,19 @@ async def _refresh_live_status():
         logger.info(f"🎉 LIVE DETECTED! Title: {title}")
 
     # ── Discord Alert on state change ─────────────────────────
-    try:
-        await discord_alerts.alert_tiktok_live(
-            live=is_live,
-            viewer_count=viewer_count,
-            title=title,
-            avatar_url=avatar_url,
-            profile_url=PROFILE_URL,
-            live_url=LIVE_URL,
-        )
-    except Exception as e:
-        logger.debug(f"Discord live alert failed: {e}")
+    # DISABLED: live start/end alerts turned off per request.
+    # If re-enabled, uncomment below:
+    # try:
+    #     await discord_alerts.alert_tiktok_live(
+    #         live=is_live,
+    #         viewer_count=viewer_count,
+    #         title=title,
+    #         avatar_url=avatar_url,
+    #         profile_url=PROFILE_URL,
+    #         live_url=LIVE_URL,
+    #     )
+    # except Exception as e:
+    #     logger.debug(f"Discord live alert failed: {e}")
 
 
 # ── FastAPI App ───────────────────────────────────────────
@@ -753,7 +841,12 @@ async def _scrape_avatar(username: str) -> str:
 
 
 def _verify_api():
-    """Raise 503 if TikTokApi is not initialized."""
+    """Raise 503 if TikTokApi sessions are disabled or not initialized."""
+    if NUM_SESSIONS == 0:
+        raise HTTPException(
+            status_code=503,
+            detail="Playwright sessions disabled (TIKTOK_SESSIONS=0). This endpoint requires browser sessions.",
+        )
     if not api:
         raise HTTPException(
             status_code=503,
@@ -766,21 +859,26 @@ def _verify_api():
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    _verify_api()
-    stats = api.get_resource_stats() if api else {}
+    if NUM_SESSIONS > 0 and api:
+        stats = api.get_resource_stats()
+        sessions = stats.get("total_sessions", 0)
+        valid = stats.get("valid_sessions", 0)
+    else:
+        sessions = 0
+        valid = 0
     return {
         "status": "ok",
-        "sessions": stats.get("total_sessions", 0),
-        "valid_sessions": stats.get("valid_sessions", 0),
+        "sessions": sessions,
+        "valid_sessions": valid,
         "live_status": cached_live_status["live"],
+        "browserless": NUM_SESSIONS == 0,
     }
 
 
 @app.post("/api/refresh")
 async def force_refresh():
     """Force a live-status refresh immediately."""
-    if api:
-        await _refresh_live_status()
+    await _refresh_live_status()
     return cached_live_status
 
 
@@ -814,6 +912,217 @@ async def get_user_info(username: str):
     except Exception as e:
         logger.error(f"User info scrape failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Helpers for Discord Command Bot ─────────────────────────
+
+async def _get_cached_live_status():
+    """Return a copy of the current live status dict."""
+    return dict(cached_live_status)
+
+
+async def _get_cached_bot_state():
+    """Return a copy of the current chat bot v2 state."""
+    return chatbot_v2.get_state()
+
+
+async def _bot_control(action: str):
+    """Start or stop the live chat bot v2."""
+    if action == "start":
+        return await chatbot_v2.start_bot()
+    elif action == "stop":
+        return await chatbot_v2.stop_bot()
+    return {"ok": False, "error": f"Unknown action: {action}"}
+
+
+async def _get_recent_comments(n: int = 10):
+    """Return the N most recent chat comments."""
+    st = chatbot_v2.get_state()
+    comments = st.get("recent_comments", [])
+    return comments[-n:] if n > 0 else comments
+
+
+async def _get_log_tail(n: int = 20):
+    """Return the last N lines of the backend log."""
+    try:
+        with open(log_path, "r") as f:
+            lines = f.readlines()
+        return lines[-n:]
+    except Exception as e:
+        return [f"Error reading log: {e}"]
+
+
+def _restart_service():
+    """Trigger a background restart of the systemd service."""
+    import subprocess
+    subprocess.Popen(
+        ["systemctl", "--user", "restart", "socandyshop-tiktok.service"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return {"ok": True, "status": "Restart initiated — will reconnect in ~15s"}
+
+
+def _set_target_handle(username: str):
+    """Update the TikTok target handle in .env and the running process."""
+    import re
+    env_path = os.path.expanduser("~/tiktok-backend/.env")
+    try:
+        with open(env_path, "r") as f:
+            content = f.read()
+        content = re.sub(
+            r"^TIKTOK_SHOP_HANDLE=.*$",
+            f"TIKTOK_SHOP_HANDLE={username}",
+            content,
+            flags=re.MULTILINE,
+        )
+        with open(env_path, "w") as f:
+            f.write(content)
+        # Update in-memory globals (requires restart for full effect)
+        global SHOP_HANDLE, PROFILE_URL, LIVE_URL
+        SHOP_HANDLE = username
+        PROFILE_URL = f"https://www.tiktok.com/@{username}"
+        LIVE_URL = f"https://www.tiktok.com/@{username}/live"
+        return {"ok": True, "status": f"Handle set to @{username} — restart for full effect"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ── Chat Bot Control Endpoints ────────────────────────────
+
+@app.post("/api/chatbot/start")
+async def chatbot_start():
+    """Start the TikTok live chat bot v2 (real chat posting)."""
+    result = await chatbot_v2.start_bot()
+    return result
+
+
+@app.post("/api/chatbot/stop")
+async def chatbot_stop():
+    """Stop the TikTok live chat bot v2."""
+    result = await chatbot_v2.stop_bot()
+    return result
+
+
+@app.get("/api/chatbot/state")
+async def chatbot_state():
+    """Get current chat bot v2 state and recent chat activity."""
+    return chatbot_v2.get_state()
+
+
+@app.post("/api/chatbot/say")
+async def chatbot_say(payload: dict):
+    """Manually send a chat message via the bot. Body: {"text": "..."}. Uses HTTP sender first, falls back to DOM poster."""
+    text = payload.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing 'text' field")
+
+    room_id = payload.get("room_id")
+    st = chatbot_v2.get_state()
+    if not room_id and st.get("room_id"):
+        room_id = int(st["room_id"])
+    if not room_id:
+        raise HTTPException(status_code=400, detail="No room_id (bot not connected?)")
+
+    # Strategy 1: HTTP sender
+    try:
+        from tiktok_chat_sender import TikTokChatSender
+        sender = TikTokChatSender()
+        loaded = await sender.load_cookies()
+        if loaded:
+            result = await sender.send_chat(text, room_id=room_id)
+            await sender.close()
+            return {"ok": result.get("success", False), "method": "http", "detail": result.get("message", "")}
+        await sender.close()
+    except Exception as e:
+        logger.debug(f"HTTP sender failed: {e}")
+
+    # Strategy 2: DOM poster
+    try:
+        from live_chat_bot_v2 import poster
+        if poster:
+            result = await poster.post(text)
+            return {"ok": result.get("ok"), "method": "dom", "error": result.get("error", None)}
+    except Exception as e:
+        logger.debug(f"DOM poster failed: {e}")
+
+    raise HTTPException(status_code=503, detail="No chat sender available (neither HTTP nor DOM)")
+
+
+@app.get("/api/chatbot/sender-status")
+async def chatbot_sender_status():
+    """Check TikTokChatSender health and session info."""
+    try:
+        from tiktok_chat_sender import TikTokChatSender
+        sender = TikTokChatSender()
+        loaded = await sender.load_cookies()
+        if not loaded:
+            await sender.close()
+            return {"available": False, "reason": "Cookies not loaded"}
+        health = await sender.check_session()
+        info = sender.session_info
+        await sender.close()
+        return {"available": True, "health": health, "info": info}
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+
+@app.post("/api/cookies/import")
+async def import_cookies(payload: dict):
+    """
+    Import TikTok session cookies (EditThisCookie format).
+    Body: {"cookies": [{"name": "sessionid", "value": "...", "domain": ".tiktok.com", ...}]}
+    Saves to tiktok_cookies.json for use by chat sender and browser sessions.
+    """
+    cookies = payload.get("cookies", [])
+    if not cookies:
+        raise HTTPException(status_code=400, detail="Missing 'cookies' array")
+
+    cookie_path = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+    try:
+        # Validate and normalize
+        normalized = []
+        for c in cookies:
+            if not c.get("name") or not c.get("value"):
+                continue
+            normalized.append({
+                "name": c["name"],
+                "value": c["value"],
+                "domain": c.get("domain", ".tiktok.com"),
+                "path": c.get("path", "/"),
+                "secure": c.get("secure", True),
+                "httpOnly": c.get("httpOnly", False),
+                "sameSite": c.get("sameSite", "Lax"),
+                "expires": c.get("expires", -1),
+            })
+
+        with open(cookie_path, "w") as f:
+            json.dump(normalized, f, indent=2)
+
+        return {"ok": True, "saved": len(normalized), "browserless": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/cookies/status")
+async def cookies_status():
+    """Check if cookies file exists and report which auth cookies are present."""
+    cookie_path = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+    if not os.path.isfile(cookie_path):
+        return {"exists": False, "auth_cookies": {}}
+
+    try:
+        with open(cookie_path, "r") as f:
+            raw = json.load(f)
+        cookies = {c["name"]: c["value"][:8] + "..." for c in raw if isinstance(c, dict) and "name" in c and "value" in c}
+        critical = ["sessionid", "tt-target-idc", "odin_tt", "sid_tt", "uid_tt", "msToken", "sid_guard"]
+        present = {k: (k in cookies) for k in critical}
+        return {"exists": True, "total_cookies": len(cookies), "auth_cookies": present, "session_id_prefix": cookies.get("sessionid")}
+    except Exception as e:
+        return {"exists": True, "error": str(e)}
+
+
+# ── Original User / Trending / Hashtag Endpoints ───────────
 
 
 @app.get("/api/user/{username}/videos", response_model=VideoListResponse)

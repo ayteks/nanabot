@@ -161,8 +161,8 @@ def build_digest() -> str:
                     continue
                 role = obj.get("role", "")
                 ts = obj.get("timestamp", "")
-                content = obj.get("content", "")
-                reasoning = obj.get("reasoning", "")
+                content = obj.get("content") or ""
+                reasoning = obj.get("reasoning") or ""
 
                 if role == "user" and content and not start_ts:
                     start_ts = ts

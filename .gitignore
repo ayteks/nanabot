@@ -8,3 +8,5 @@ screenshots/
 *.log
 debug_*.py
 .env
+tiktok_cookies.json
+data/

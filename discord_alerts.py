@@ -1,13 +1,11 @@
 """
 SoCandyShop Discord Alerts
 ==========================
-Sends alert messages to the Sak Mission Control Discord server
-using raw HTTP calls (httpx) + bot token. No discord.py needed.
+Envoie des alertes sur le serveur Discord Sak Mission Control
+via des appels HTTP bruts (httpx) + token bot. Pas besoin de discord.py.
 
-Alerts:
-  • TikTok LIVE start / end
-  • Backend health degradation
-  • New video drops (when available)
+Alertes:
+  • TikTok LIVE démarré / terminé  (seules alertes envoyées)
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ import httpx
 logger = logging.getLogger("socandyshop-discord")
 
 # ── Config ──────────────────────────────────────────────────
-BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
+BOT_TOKEN = os.getenv("DISCORD_BOT_COMMAND_TOKEN", os.getenv("DISCORD_BOT_TOKEN", ""))
 # #updates channel in Sak Mission Control
 DEFAULT_CHANNEL_ID = os.getenv("DISCORD_ALERTS_CHANNEL", "1499361259395485717")
 DISCORD_API = "https://discord.com/api/v10"
@@ -91,11 +89,12 @@ async def alert_tiktok_live(
     """
     global _last_live_state, _last_alert_ts
 
-    # Skip if no state change (except first run)
-    if _last_live_state is not None and _last_live_state == live:
+    # Only alert on actual state transitions — first check initializes silently
+    if _last_live_state is None:
+        _last_live_state = live
         return
-
-    _last_live_state = live
+    if _last_live_state == live:
+        return
 
     if live:
         # LIVE STARTED
@@ -112,8 +111,9 @@ async def alert_tiktok_live(
             ],
         }
         payload = {
-            "content": "@everyone 🔴 **LIVE STARTED**",
+            "content": "@everyone 🔴 **LIVE DÉMARRÉ**",
             "embeds": [embed],
+            "allowed_mentions": {"parse": ["everyone"]},
         }
     else:
         # LIVE ENDED
@@ -127,8 +127,9 @@ async def alert_tiktok_live(
             "timestamp": datetime.utcnow().isoformat(),
         }
         payload = {
-            "content": "⚫ **LIVE ENDED**",
+            "content": "@everyone ⚫ **LIVE TERMINÉ**",
             "embeds": [embed],
+            "allowed_mentions": {"parse": ["everyone"]},
         }
 
     ok = await _send_message(DEFAULT_CHANNEL_ID, payload)
@@ -138,39 +139,29 @@ async def alert_tiktok_live(
 
 async def alert_health_degraded(detail: str) -> None:
     """Alert when backend health check fails."""
-    if not _rate_limit_ok():
-        return
-    embed = {
-        "title": "⚠️ Backend Health Issue",
-        "description": detail,
-        "color": 0xFFA500,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-    payload = {"content": "⚠️ **System Alert**", "embeds": [embed]}
-    ok = await _send_message(DEFAULT_CHANNEL_ID, payload)
-    if ok:
-        _last_alert_ts = datetime.utcnow()
+    return  # Disabled — only live/offline alerts are sent
 
 
 async def alert_new_videos(count: int) -> None:
     """Alert when new videos are scraped."""
-    if not _rate_limit_ok() or count == 0:
-        return
-    payload = {
-        "content": f"📹 **{count} new TikTok video(s)** scraped for SoCandyShop feed.",
-    }
-    ok = await _send_message(DEFAULT_CHANNEL_ID, payload)
-    if ok:
-        _last_alert_ts = datetime.utcnow()
+    return  # Disabled — only live/offline alerts are sent
 
 
 async def alert_backend_started() -> None:
     """Alert when backend boots."""
-    embed = {
-        "title": "🚀 SoCandyShop Backend Online",
-        "description": "TikTok backend started successfully.",
-        "color": 0x00C853,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-    payload = {"content": "🚀 **Backend Started**", "embeds": [embed]}
-    await _send_message(DEFAULT_CHANNEL_ID, payload)
+    return  # Disabled — only live/offline alerts are sent
+
+
+async def alert_chat_gift(user_name: str, gift_name: str, repeat_count: int) -> None:
+    """Alert when someone sends a gift in live chat."""
+    return  # Disabled — only live/offline alerts are sent
+
+
+async def alert_chat_follow(user_name: str) -> None:
+    """Alert when someone follows during the live."""
+    return  # Disabled — only live/offline alerts are sent
+
+
+async def alert_chat_mention(user_name: str, comment: str) -> None:
+    """Alert when someone mentions the bot in chat."""
+    return  # Disabled — only live/offline alerts are sent
