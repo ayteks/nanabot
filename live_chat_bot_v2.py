@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
-logger = logging.getLogger("socandyshop-tiktok")
+logger = logging.getLogger("nanabot")
 
 # ── Optional TikTokLive import ────────────────────────────
 try:

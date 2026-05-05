@@ -8,7 +8,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
-DB_DIR = os.path.expanduser("~/tiktok-backend/data")
+DB_DIR = os.path.expanduser("~/nanabot/data")
 DB_PATH = os.path.join(DB_DIR, "discord_chat_memory.db")
 
 

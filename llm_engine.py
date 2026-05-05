@@ -16,7 +16,7 @@ from typing import Optional
 
 import httpx
 
-logger = logging.getLogger("socandyshop-tiktok")
+logger = logging.getLogger("nanabot")
 
 # ── Shared LLM config ─────────────────────────────────────────
 _API_BASE = os.getenv("API_BASE_URL", os.getenv("OLLAMA_CLOUD_URL", "https://ollama.com"))

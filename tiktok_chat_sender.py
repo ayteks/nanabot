@@ -25,7 +25,7 @@ import httpx
 logger = logging.getLogger("tiktok-chat-sender")
 
 # ── Config ─────────────────────────────────────────────────────
-_COOKIE_PATH = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+_COOKIE_PATH = os.path.expanduser("~/nanabot/tiktok_cookies.json")
 _WEBCAST_BASE = "https://webcast.tiktok.com/webcast"
 _SEND_MSG_ENDPOINT = f"{_WEBCAST_BASE}/im/send_msg/"
 _CHAT_ENDPOINT = f"{_WEBCAST_BASE}/chat/send/"  # Alternative endpoint (newer)

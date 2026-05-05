@@ -31,7 +31,7 @@ import httpx
 from dotenv import load_dotenv
 
 # Load .env file before anything else
-load_dotenv(os.path.expanduser("~/tiktok-backend/.env"))
+load_dotenv(os.path.expanduser("~/nanabot/.env"))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,7 +51,7 @@ import discord_commands
 import discord_alerts
 
 # ── Logging ───────────────────────────────────────────────
-log_path = os.path.expanduser("~/tiktok-backend/backend.log")
+log_path = os.path.expanduser("~/nanabot/backend.log")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -60,7 +60,7 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout),
     ],
 )
-logger = logging.getLogger("socandyshop-tiktok")
+logger = logging.getLogger("nanabot")
 
 # ── Config ────────────────────────────────────────────────
 MS_TOKEN = os.getenv("MS_TOKEN", "")
@@ -130,7 +130,7 @@ async def lifespan(app: FastAPI):
             logger.info(f"TikTokApi ready — {session_count}/{NUM_SESSIONS} session(s) created")
 
             # ── Inject TikTok auth cookies into all sessions ──────────
-            cookie_path = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+            cookie_path = os.path.expanduser("~/nanabot/tiktok_cookies.json")
             if os.path.isfile(cookie_path):
                 try:
                     import json
@@ -242,7 +242,7 @@ async def _background_live_poller():
 
 def _load_cookies_from_file() -> dict:
     """Load TikTok cookies from tiktok_cookies.json — no Playwright needed."""
-    cookie_path = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+    cookie_path = os.path.expanduser("~/nanabot/tiktok_cookies.json")
     if not os.path.isfile(cookie_path):
         return {}
     try:
@@ -956,7 +956,7 @@ def _restart_service():
     """Trigger a background restart of the systemd service."""
     import subprocess
     subprocess.Popen(
-        ["systemctl", "--user", "restart", "socandyshop-tiktok.service"],
+["systemctl", "--user", "restart", "nanabot.service"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -966,7 +966,7 @@ def _restart_service():
 def _set_target_handle(username: str):
     """Update the TikTok target handle in .env and the running process."""
     import re
-    env_path = os.path.expanduser("~/tiktok-backend/.env")
+    env_path = os.path.expanduser("~/nanabot/.env")
     try:
         with open(env_path, "r") as f:
             content = f.read()
@@ -1078,7 +1078,7 @@ async def import_cookies(payload: dict):
     if not cookies:
         raise HTTPException(status_code=400, detail="Missing 'cookies' array")
 
-    cookie_path = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+    cookie_path = os.path.expanduser("~/nanabot/tiktok_cookies.json")
     try:
         # Validate and normalize
         normalized = []
@@ -1107,7 +1107,7 @@ async def import_cookies(payload: dict):
 @app.get("/api/cookies/status")
 async def cookies_status():
     """Check if cookies file exists and report which auth cookies are present."""
-    cookie_path = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+    cookie_path = os.path.expanduser("~/nanabot/tiktok_cookies.json")
     if not os.path.isfile(cookie_path):
         return {"exists": False, "auth_cookies": {}}
 

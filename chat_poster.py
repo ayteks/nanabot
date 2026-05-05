@@ -17,7 +17,7 @@ except Exception:
 
 _SHOP_HANDLE = os.getenv("TIKTOK_SHOP_HANDLE", "soetsopains")
 _MAX_MSG_RATE = int(os.getenv("BOT_MAX_MSG_RATE", "3"))
-_COOKIE_PATH = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+_COOKIE_PATH = os.path.expanduser("~/nanabot/tiktok_cookies.json")
 
 _SELECTORS = {
     "input": [

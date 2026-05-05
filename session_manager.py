@@ -28,7 +28,7 @@ logger = logging.getLogger("tiktok-session-manager")
 
 # ── Paths ─────────────────────────────────────────────────────
 _DEFAULT_PROFILE_DIR = os.path.expanduser("~/.config/tiktok-browser")
-_DEFAULT_COOKIE_OUTPUT = os.path.expanduser("~/tiktok-backend/tiktok_cookies.json")
+_DEFAULT_COOKIE_OUTPUT = os.path.expanduser("~/nanabot/tiktok_cookies.json")
 _TIKTOK_LOGIN_URL = "https://www.tiktok.com/login"
 _TIKTOK_LIVE_URL = "https://www.tiktok.com/@{handle}/live"
 

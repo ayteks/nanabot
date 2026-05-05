@@ -7,9 +7,9 @@ if len(sys.argv) >= 3:
     SERVER = sys.argv[2]
     del sys.argv[1]  # Remove from argv so action is still at index 1
 
-DIR = "/home/ekah/tiktok-backend"
+DIR = "/home/sak/nanabot"
 VENV_PYTHON = f"{DIR}/venv/bin/python"
-SERVICE_NAME = "socandyshop-tiktok"
+SERVICE_NAME = "nanabot"
 
 def run(cmd, check=True):
     print(f"$ {cmd}")

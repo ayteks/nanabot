@@ -12,7 +12,7 @@ The backend runs on port 3100 (matching the existing proxy URL).
 import os
 import sys
 
-SERVICE_NAME = "socandyshop-tiktok"
+SERVICE_NAME = "nanabot"
 SERVICE_FILE = os.path.expanduser(f"~/.config/systemd/user/{SERVICE_NAME}.service")
 
 SERVICE_CONTENT = f"""\
@@ -23,8 +23,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/xvfb-run --auto-servernum {os.path.expanduser("~/tiktok-backend/venv/bin/python")} {os.path.expanduser("~/tiktok-backend/main.py")}
-WorkingDirectory={os.path.expanduser("~/tiktok-backend")}
+ExecStart=/usr/bin/xvfb-run --auto-servernum {os.path.expanduser("~/nanabot/venv/bin/python")} {os.path.expanduser("~/nanabot/main.py")}
+WorkingDirectory={os.path.expanduser("~/nanabot")}
 Restart=on-failure
 RestartSec=10
 Environment=HOST=0.0.0.0
