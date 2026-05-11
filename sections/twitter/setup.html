@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SoCandyShop — Twitter Bot Cookies</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #15202b; color: #e7e9ea;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            padding: 16px;
+        }
+        .card {
+            background: #1d9bf0; border-radius: 16px; padding: 28px;
+            max-width: 500px; width: 100%;
+        }
+        .card h1 { font-size: 22px; margin-bottom: 6px; }
+        .card .handle { font-size: 14px; opacity: .8; margin-bottom: 20px; }
+        .card p { font-size: 14px; margin-bottom: 16px; line-height: 1.5; }
+        .step { background: rgba(0,0,0,.25); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+        .step b { color: #fff; }
+        label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+        input[type="text"] {
+            width: 100%; padding: 12px; border-radius: 8px; border: 2px solid rgba(255,255,255,.3);
+            background: rgba(0,0,0,.3); color: #fff; font-size: 16px; margin-bottom: 16px;
+        }
+        input[type="text"]::placeholder { color: rgba(255,255,255,.5); }
+        input:focus { outline: none; border-color: #fff; }
+        button {
+            width: 100%; padding: 14px; border-radius: 24px; border: none;
+            background: #fff; color: #1d9bf0; font-size: 16px; font-weight: 700;
+            cursor: pointer; transition: opacity .2s;
+        }
+        button:hover { opacity: .9; }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        .result { margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 14px; display: none; }
+        .result.ok { display: block; background: rgba(0,180,0,.3); }
+        .result.err { display: block; background: rgba(220,40,40,.3); }
+        .or-sep { text-align: center; margin: 16px 0; opacity: .6; font-size: 13px; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h1>🍬 Twitter Bot Setup</h1>
+    <div class="handle">@Socandyshopfr</div>
+
+    <div class="step">
+        <b>Étape 1 :</b> Sur ton téléphone, ouvre <b>x.com</b> et connecte-toi en tant que <b>@Socandyshopfr</b>
+    </div>
+    <div class="step">
+        <b>Étape 2 :</b> Tape <code>javascript:document.cookie</code> dans la barre d'adresse et copie tout ce qui s'affiche.<br><br>
+        <b>Plus simple :</b> Colle juste les 3 valeurs ci-dessous :
+    </div>
+
+    <label>🔑 auth_token</label>
+    <input type="text" id="auth_token" placeholder="ex: a1b2c3d4e5f6..." autocomplete="off">
+
+    <label>🏷️ ct0</label>
+    <input type="text" id="ct0" placeholder="ex: abc123def456..." autocomplete="off">
+
+    <label>🆔 twid</label>
+    <input type="text" id="twid" placeholder="ex: 1234567890 ou %2D... (optionnel)" autocomplete="off">
+
+    <div class="or-sep">— OU —</div>
+
+    <label>📋 Coller tous les cookies (format brut)</label>
+    <input type="text" id="raw_cookies" placeholder="Colle ici le résultat de javascript:document.cookie" autocomplete="off">
+
+    <button id="btn" onclick="submit()">Envoyer au bot 🚀</button>
+    <div id="result" class="result"></div>
+</div>
+
+<script>
+const API = window.location.origin + '/api/twitter/cookies';
+const BTN = document.getElementById('btn');
+
+async function submit() {
+    const auth_token = document.getElementById('auth_token').value.trim();
+    const ct0 = document.getElementById('ct0').value.trim();
+    const twid = document.getElementById('twid').value.trim();
+    const raw = document.getElementById('raw_cookies').value.trim();
+    const res = document.getElementById('result');
+
+    let cookies = [];
+
+    // Option A: individual fields
+    if (auth_token || ct0 || twid) {
+        if (!auth_token || !ct0) {
+            res.className = 'result err';
+            res.textContent = '❌ Il faut au minimum auth_token ET ct0';
+            return;
+        }
+        cookies = [
+            { name: 'auth_token', value: auth_token, domain: '.x.com', path: '/', secure: true, httpOnly: true },
+            { name: 'ct0', value: ct0, domain: '.x.com', path: '/', secure: false, httpOnly: false },
+        ];
+        if (twid) {
+            cookies.push({ name: 'twid', value: twid, domain: '.x.com', path: '/', secure: false, httpOnly: false });
+        }
+    }
+    // Option B: raw cookie string
+    else if (raw) {
+        raw.split(';').forEach(part => {
+            const eq = part.indexOf('=');
+            if (eq === -1) return;
+            const name = part.substring(0, eq).trim();
+            const value = part.substring(eq + 1).trim();
+            if (!name || !value) return;
+            if (['auth_token', 'ct0', 'twid', 'kdt', 'd_prefs', 'guest_id', 'personalization_id', 'twid_long'].includes(name)) {
+                cookies.push({
+                    name, value,
+                    domain: name === 'auth_token' ? '.x.com' : '.x.com',
+                    path: '/',
+                    secure: name === 'auth_token',
+                    httpOnly: name === 'auth_token',
+                });
+            }
+        });
+        if (cookies.length < 2) {
+            // Send ALL cookies if we couldn't find key ones
+            raw.split(';').forEach(part => {
+                const eq = part.indexOf('=');
+                if (eq === -1) return;
+                const name = part.substring(0, eq).trim();
+                const value = part.substring(eq + 1).trim();
+                cookies.push({ name, value, domain: '.x.com', path: '/' });
+            });
+        }
+    } else {
+        res.className = 'result err';
+        res.textContent = '❌ Remplis au moins auth_token + ct0, ou colle les cookies bruts';
+        return;
+    }
+
+    BTN.disabled = true;
+    BTN.textContent = 'Envoi en cours...';
+
+    try {
+        const resp = await fetch(API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cookies }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            res.className = 'result ok';
+            res.textContent = '✅ Cookies reçus ! Bot redémarre avec les nouvelles sessions...';
+            // Check bot status after a few seconds
+            setTimeout(async () => {
+                const st = await fetch(window.location.origin + '/api/twitter/status');
+                const s = await st.json();
+                if (s.ready) {
+                    res.textContent = '✅ Bot Twitter connecté et prêt ! @' + (s.handle || 'Socandyshopfr');
+                } else {
+                    res.textContent = '⚠️ Cookies enregistrés mais le bot n\'est pas encore connecté. Vérifie que TWITTER_ENABLED=true dans .env';
+                }
+            }, 8000);
+        } else {
+            res.className = 'result err';
+            res.textContent = '❌ Erreur : ' + (data.detail || JSON.stringify(data));
+        }
+    } catch (e) {
+        res.className = 'result err';
+        res.textContent = '❌ Erreur réseau : ' + e.message;
+    } finally {
+        BTN.disabled = false;
+        BTN.textContent = 'Envoyer au bot 🚀';
+    }
+}
+</script>
+</body>
+</html>

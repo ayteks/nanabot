@@ -114,6 +114,8 @@ def _extract_topic(user_msg: str, assistant_reasoning: str) -> str:
         ("deploy", "Deploy"),
         ("service", "Systemd"),
         ("backend", "Backend"),
+        ("nanabot", "Backend"),
+        ("nana", "SoCandyShop"),
         ("live", "Livestream"),
         ("alert", "Alerts"),
         ("cron", "Automation"),
@@ -293,10 +295,11 @@ if __name__ == "__main__":
     parser.add_argument("--post", action="store_true", help="Post digest to Discord instead of stdout")
     args = parser.parse_args()
 
-    combined, topics = build_digest()
-    if not combined:
+    result = build_digest()
+    if not result:
         print("[digest] No sessions found for today.")
         sys.exit(0)
+    combined, topics = result
 
     if args.post:
         asyncio.run(post_to_discord(combined, topics))

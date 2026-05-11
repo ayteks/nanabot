@@ -88,7 +88,7 @@ BOT_MAX_MSG_RATE = max(1, _BOT_MAX_MSG_RATE)
 DISCORD_LIVE_WEBHOOK = os.getenv("DISCORD_LIVE_WEBHOOK", "")
 
 # ── Short link — TikTok shop or Shopify store ───────────────
-SHOP_SHORT_URL = os.getenv("SHOP_SHORT_URL", "https://socandyshop.com")
+SHOP_SHORT_URL = os.getenv("SHOP_SHORT_URL", "https://socandyshop.fr")
 
 # ── State ───────────────────────────────────────────────────
 @dataclass
@@ -114,13 +114,13 @@ state = BotState()
 
 # ── Promo rotation ──────────────────────────────────────────
 _PROMO_MESSAGES = [
-    "🍬 Hello tout le monde ! C'est Nana de la team socandyshop — si vous aimez les friandises, on est fait(e)s pour se connaître 😄",
-    "🎁 On a des bonbons de mal chez nous — surtout les rubans acides, j'ai adoré la première fois 🌈",
-    "✨ Moi j'adore les nouveautés, c'est notre dada chez socandyshop ! Vous avez des préférés ?",
-    "🍭 Le Crâne BubbleGum Acidulé c'est ma pépite perso — celui qui aime les choses fortes sera servi 🤘",
-    "💬 Trop chou le live ! N'hésitez pas à poser des questions sur les bonbons, je connais bien la gamme 😁",
-    "🤘 Si vous kiffez les trucs acides, les rubans rainbow c'est le test ultime — perso j'ai les larmes aux yeux à chaque fois",
-    "✨ Le petit dernier qui cartonne c'est le Anneaux Arlequin, les goûts mélangés c'est une dinguerie",
+    "🍬 Hey ! C'est Nana de socandyshop — si vous avez des questions hésitez pas.",
+    "On a pas mal de trucs chez socandyshop — les rubans acides sont super demandés.",
+    "Les nouveautés arrivent souvent chez socandyshop — les Anneaux Arlequin cartonnent en ce moment.",
+    "Le Crâne BubbleGum Acidulé c'est un classique — pour ceux qui aiment bien l'acide.",
+    "Hésitez pas si vous avez des questions sur les bonbons, je connais la gamme.",
+    "Nos best-sellers : les rubans acides, les Crânes BubbleGum et les Anneaux Arlequin.",
+    "L'Anneau Arlequin et ses goûts mélangés c'est toujours populaire.",
 ]
 
 _GREETINGS = [
@@ -128,42 +128,42 @@ _GREETINGS = [
 ]
 
 _THANKS_GIFT = [
-    "Merci beaucoup {name} pour le cadeau ! 🎁💖",
-    "Wouah {name} merci pour le gift ! Tu es génial(e) ! 🌟",
-    "Merci {name} ! Ton soutien fait fondre notre cœur (et nos bonbons) ! 🍫",
-    "{name} t’es un(e) vrai(e) fan ! Merci pour le gift ! 🙏",
+    "Merci {name} pour le gift ! 🎁",
+    "{name} merci pour le cadeau !",
+    "Merci {name} c'est sympa !",
+    "{name} trop merci ! 🙏",
 ]
 
 _REPLY_MENTION = [
-    "Coucou {name} ! 🍬 Moi c'est Nana, je bosse avec l'équipe socandyshop — t'as une question sur les bonbons ?",
-    "Hey {name} ! Ca va ? Je suis de la team socandyshop, t'as envie de découvrir un truc sympa ?",
-    "{name} ! Le Anneaux Arlequin c'est mon coup de cœur perso — les goûts de réglisse mélangés, c'est fou 🍭",
-    "Salut {name} 😊 Moi c'est Nana de socandyshop — je connais tout le stock sur le bout des doigts !",
-    "Hey {name} ! Je suis trop bavarde, mais quand il s'agit de bonbons je peux pas m'arrêter 😂",
+    "Coucou {name} ! 🍬 Moi c'est Nana de socandyshop — une question ?",
+    "Hey {name} ! Je suis de la team socandyshop, hésite pas.",
+    "{name} ! Les Anneaux Arlequin sont super populaires en ce moment 🍭",
+    "Salut {name} 😊 Nana de socandyshop — dis-moi si t'as une question.",
+    "Hey {name} ! Je suis là si tu veux savoir un truc sur les bonbons.",
 ]
 
 _REPLY_KEYWORD = {
-    "prix": "Oula les prix varient selon les paquets, mais ya des trucs cool pour tous les budgets !",
-    "commande": "T'as déjà commandé qq chose de drôle récemment ? Les nouveautés ça arrive vite chez nous 😋",
-    "livraison": "On envoie en France métro et en Belgique — c'est rapide en général !",
-    "nouveau": "Omg les nouveautés là j'adore — surtout les Bisous Mûre et Melon, c'est une dinguerie 🍬",
-    "coréen": "Nan nous on est plus spécialisés dans les bonbons français et européens — les Anneaux Arlequin c'est mon kiff 😋",
-    "japonais": "Nos bonbons sont plutôt européens et français — les Dauphin XL par ex sont trop fun 😄",
-    "bonbon": "Ahh t'as un préféré toi ? Moi c'est les Crânes BubbleGum Acides, mon vice 🤘",
-    "magasin": "Nos produits sont sur socandyshop.fr — tu trouveras tout ce qu'on a en stock !",
-    "shop": "Nos produits sont sur socandyshop.fr — tu trouveras tout ce qu'on a en stock !",
+    "prix": "Les prix varient selon les paquets — y'a pour tous les budgets.",
+    "commande": "Tu peux commander sur socandyshop, c'est rapide en général.",
+    "livraison": "On livre en France métro et en Belgique — expédié sous 24-72h.",
+    "nouveau": "Les nouveautés c'est les Bisous Mûre et Melon en ce moment 🍬",
+    "coréen": "On est plutôt sur les bonbons français et européens — les Anneaux Arlequin sont un classique.",
+    "japonais": "Nos bonbons sont plutôt européens et français — les Dauphin XL sont super populaires.",
+    "bonbon": "T'as un préféré ? Les Crânes BubbleGum Acides sont parmi les plus demandés.",
+    "magasin": "C'est sur socandyshop.fr — toute la gamme y est.",
+    "shop": "C'est sur socandyshop.fr — toute la gamme y est.",
 }
 
 _THANKS_LIKE = [
     "Merci pour les likes ! ❤️",
-    "Vous êtes incroyables avec tous ces likes ! 🔥",
-    "Tous ces likes, vous êtes les meilleurs ! 💕",
+    "Merci pour le soutien ! 🔥",
+    "Les likes font plaisir ! 💕",
 ]
 
 _THANKS_FOLLOW = [
-    "Merci pour le follow {name} ! 🎉 Bienvenue dans la famille SoCandyShop !",
-    "{name} a rejoint la famille ! Merci pour le follow ! 🍬",
-    "Wouah merci {name} ! On est de plus en plus nombreux ! 🙌",
+    "Merci pour le follow {name} ! 🎉",
+    "{name} vient de nous rejoindre — bienvenue !",
+    "Merci {name} ! Ravi de te compter parmi nous.",
 ]
 
 # ── Helpers ─────────────────────────────────────────────────
@@ -184,6 +184,8 @@ def _get_user(event) -> tuple[str, str]:
 # ── Global rate limiter ─────────────────────────────────────
 _last_bot_post_ts: float = 0.0
 _http_sender: Optional[TikTokChatSender] = None
+_llm_fail_streak: int = 0
+_llm_cooldown_until: float = 0.0
 
 async def _get_http_sender() -> Optional[TikTokChatSender]:
     """Lazily init the HTTP-based chat sender."""
@@ -249,7 +251,7 @@ async def _on_connect(event: "ConnectEvent") -> None:
     state.connected = True
     state.room_id = str(getattr(event, "room_id", ""))
     logger.info(f"🟢 Bot connected to @{SHOP_HANDLE} (room={state.room_id})")
-    await _bot_say("🍬 Heyyy ! C'est Nana de la team socandyshop ! Contente de vous voir là 😁", "system")
+    await _bot_say("🍬 Hey ! C'est Nana de socandyshop — bienvenue !", "system")
 
 
 async def _on_disconnect(event: "DisconnectEvent") -> None:
@@ -282,6 +284,21 @@ async def _on_comment(event: "CommentEvent") -> None:
 
     logger.info(f"[CHAT] {nickname} (@{unique_id}): {comment}")
 
+    # ── Store in MemPalace for semantic recall ──
+    try:
+        from mempalace_bridge import store_conversation_turn
+        asyncio.create_task(store_conversation_turn(
+            user_name=nickname or unique_id,
+            user_id=unique_id,
+            content=comment,
+            role="user",
+            channel_id=f"tiktok_{SHOP_HANDLE}",
+        ))
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
     # ── Keyword-based replies (not just mentions) ─────────────
     lowered = comment.lower()
     user_key = unique_id or nickname
@@ -313,16 +330,34 @@ async def _on_comment(event: "CommentEvent") -> None:
             _user_last_reply[user_key] = now
             # LLM override for richer, contextual replies
             if _HAS_LLM:
-                try:
-                    llm_reply = await reply_to_comment(
-                        nickname or unique_id or "ami",
-                        comment,
-                        context="TikTok LIVE SoCandyShop",
-                    )
-                    if llm_reply:
-                        reply_text = llm_reply
-                except Exception as e:
-                    logger.debug(f"[LLM] fallback to template: {e}")
+                # Check LLM cooldown first
+                if time.time() >= _llm_cooldown_until:
+                    try:
+                        llm_reply = await reply_to_comment(
+                            nickname or unique_id or "ami",
+                            comment,
+                            context="TikTok LIVE SoCandyShop",
+                            channel_id=f"tiktok_{SHOP_HANDLE}",
+                            platform="tiktok",
+                        )
+                        if llm_reply:
+                            reply_text = llm_reply
+                            _llm_fail_streak = 0  # reset on success
+                        else:
+                            # LLM returned None (filtered or failed)
+                            _llm_fail_streak += 1
+                            if _llm_fail_streak >= 3:
+                                _llm_cooldown_until = time.time() + 300  # 5 min
+                                _llm_fail_streak = 0
+                                logger.warning("[TikTok] LLM failed 3x — cooldown 5 min")
+                    except Exception as e:
+                        _llm_fail_streak += 1
+                        if _llm_fail_streak >= 3:
+                            _llm_cooldown_until = time.time() + 300
+                            _llm_fail_streak = 0
+                            logger.warning(f"[TikTok] LLM error (cooldown): {e}")
+                        else:
+                            logger.debug(f"[LLM] fallback to template: {e}")
             await _bot_say(reply_text, "reply")
             if _HAS_DISCORD:
                 try:

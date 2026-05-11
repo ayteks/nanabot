@@ -1,0 +1,82 @@
+[
+  {
+    "name": "auth_token",
+    "value": "ff49e3108c0a4693bb9b81bc46a0d83a7bf3ff3a",
+    "domain": ".x.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": true
+  },
+  {
+    "name": "ct0",
+    "value": "778ae3aadd57835fae4b145b00189c470673659a88eaa63bcd3b21da6abaee6365aa3d9ca0e05e2fdab829f4f7358fe5cc85a703441e8f405709f2b7abcb89a4a004bed7492da416d84b251bdfa43da6",
+    "domain": ".x.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": false
+  },
+  {
+    "name": "twid",
+    "value": "u%3D2039623991665606656",
+    "domain": ".x.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": false
+  },
+  {
+    "name": "kdt",
+    "value": "w1az0vCKoC1w2dfdBwfFJrdMht5oLnKK1JRVM4gk",
+    "domain": ".x.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": true
+  },
+  {
+    "name": "att",
+    "value": "1-qyI7S2pXewNKpz3glErFdOhWIUIBXUPCOPViwK1V",
+    "domain": ".x.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": true
+  },
+  {
+    "name": "lang",
+    "value": "fr",
+    "domain": "x.com",
+    "path": "/",
+    "secure": false,
+    "httpOnly": false
+  },
+  {
+    "name": "d_prefs",
+    "value": "MToxLGNvbnNlbnRfdmVyc2lvbjoyLHRleHRfdmVyc2lvbjoxMDAw",
+    "domain": ".x.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": false
+  },
+  {
+    "name": "personalization_id",
+    "value": "\"v1_64tvqwTCcTCL8nZQd27snw==\"",
+    "domain": ".x.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": false
+  },
+  {
+    "name": "gt",
+    "value": "2052000070493474862",
+    "domain": ".x.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": false
+  },
+  {
+    "name": "guest_id",
+    "value": "v1%3A177806991576088776",
+    "domain": ".x.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": false
+  }
+]

@@ -34,6 +34,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.expanduser("~/nanabot/.env"))
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -41,7 +42,6 @@ from pydantic import BaseModel
 from TikTokApi import TikTokApi
 
 # ── Live Chat Bot ───────────────────────────────────────────
-import live_chat_bot as chatbot
 import live_chat_bot_v2 as chatbot_v2
 
 # ── Discord Command Bot ────────────────────────────────────
@@ -49,6 +49,7 @@ import discord_commands
 
 # ── Discord Alerts ──────────────────────────────────────────
 import discord_alerts
+import twitter_bot as twitter_bot_module
 
 # ── Logging ───────────────────────────────────────────────
 log_path = os.path.expanduser("~/nanabot/backend.log")
@@ -186,6 +187,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Live chat bot v2 start failed: {e}")
 
+    # ── Initialize MemPalace bridge (primary memory backend) ──
+    try:
+        from mempalace_bridge import init as mp_init
+        mp_init()
+        logger.info("[Startup] MemPalace bridge initialized ✅")
+    except Exception as e:
+        logger.warning(f"[Startup] MemPalace bridge init failed (non-critical, will use fallbacks): {e}")
+
+    # ── vector_store + embedding_engine removed (MemPalace is the primary backend) ──
+
+    # ── Start conversation summarizer (every 6 hours) ──
+    try:
+        from conversation_summarizer import summarization_loop
+        asyncio.create_task(summarization_loop(interval_hours=6.0))
+        logger.info("[Startup] Conversation summarizer started (6h interval) ✅")
+    except Exception as e:
+        logger.warning(f"[Startup] Summarizer start failed (non-critical): {e}")
+
     # Start Discord command bot (if token available)
     try:
         await discord_commands.start_bot_command(
@@ -206,11 +225,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug(f"Discord startup alert failed: {e}")
 
+    # ── Twitter Bot ──────────────────────────────────────────
+    try:
+        await twitter_bot_module.start_twitter_bot()
+    except Exception as e:
+        logger.warning(f"Twitter bot startup failed: {e}")
+
     yield
 
     # Stop Discord command bot
     try:
         await discord_commands.stop_bot_command()
+        # Stop Twitter bot
+        try:
+            await twitter_bot_module.stop_twitter_bot()
+        except Exception as e:
+            logger.warning(f"Twitter bot shutdown error: {e}")
     except Exception:
         pass
 
@@ -387,11 +417,7 @@ async def _check_live_via_httpx() -> tuple[bool, int, str]:
 
 async def _refresh_live_status():
     """Check TikTok live status through multiple strategies, independently."""
-    global cached_live_status, api
-    if not api:
-        cached_live_status["live"] = False
-        cached_live_status["checked_at"] = datetime.utcnow().isoformat()
-        return
+    global cached_live_status
 
     # Get avatar (best-effort, don't let failure block live detection)
     avatar_url = ""
@@ -866,6 +892,9 @@ async def health():
     else:
         sessions = 0
         valid = 0
+    # Vector store stats (removed — MemPalace is the backend)
+    vs_stats = {}
+
     return {
         "status": "ok",
         "sessions": sessions,
@@ -1102,6 +1131,108 @@ async def import_cookies(payload: dict):
         return {"ok": True, "saved": len(normalized), "browserless": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Twitter Bot Endpoints ──────────────────────────────────
+
+@app.get("/api/twitter/status")
+async def twitter_status():
+    """Twitter bot status."""
+    bot = twitter_bot_module.get_twitter_bot()
+    if not bot:
+        return {"enabled": twitter_bot_module.ENABLED, "running": False}
+    return bot.get_state()
+
+
+@app.post("/api/twitter/tweet")
+async def twitter_tweet(payload: dict):
+    """Post a tweet manually. Body: {"text": "..."}"""
+    text = payload.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing 'text'")
+    bot = twitter_bot_module.get_twitter_bot()
+    if not bot or not bot._ready:
+        raise HTTPException(status_code=503, detail="Twitter bot not ready")
+    result = await bot.post_tweet(text)
+    return result
+
+
+@app.post("/api/twitter/reply")
+async def twitter_reply(payload: dict):
+    """Reply to a tweet. Body: {"url": "https://x.com/...", "text": "..."}"""
+    url = payload.get("url", "").strip()
+    text = payload.get("text", "").strip()
+    if not url or not text:
+        raise HTTPException(status_code=400, detail="Missing 'url' or 'text'")
+    bot = twitter_bot_module.get_twitter_bot()
+    if not bot or not bot._ready:
+        raise HTTPException(status_code=503, detail="Twitter bot not ready")
+    result = await bot.reply_to_tweet(url, text)
+    return result
+
+
+@app.delete("/api/twitter/tweet/{tweet_id}")
+async def twitter_delete(tweet_id: str):
+    """Delete a tweet by ID."""
+    bot = twitter_bot_module.get_twitter_bot()
+    if not bot or not bot._ready:
+        raise HTTPException(status_code=503, detail="Twitter bot not ready")
+    result = await bot.delete_tweet(tweet_id)
+    return result
+
+
+@app.get("/api/twitter/mentions")
+async def twitter_mentions(count: int = 10):
+    """Read recent mentions."""
+    bot = twitter_bot_module.get_twitter_bot()
+    if not bot or not bot._ready:
+        raise HTTPException(status_code=503, detail="Twitter bot not ready")
+    mentions = await bot.read_mentions(count=min(count, 50))
+    return {"mentions": mentions}
+
+
+@app.post("/api/twitter/cookies")
+async def twitter_import_cookies(payload: dict):
+    """
+    Import Twitter/X session cookies (EditThisCookie format).
+    Body: {"cookies": [{"name": "auth_token", "value": "...", "domain": ".x.com", ...}]}
+    Saves to twitter_cookies.json and restarts the bot.
+    """
+    cookies = payload.get("cookies", [])
+    if not cookies:
+        raise HTTPException(status_code=400, detail="Missing 'cookies' array")
+    twitter_cookie_path = os.path.expanduser("~/nanabot/twitter_cookies.json")
+    import json as _json
+    with open(twitter_cookie_path, "w") as f:
+        _json.dump(cookies, f, indent=2)
+    # Restart the bot to pick up new cookies
+    await twitter_bot_module.stop_twitter_bot()
+    ok = await twitter_bot_module.start_twitter_bot()
+    return {"ok": ok, "cookies_saved": len(cookies)}
+
+
+@app.post("/api/twitter/start")
+async def twitter_start():
+    """Start the Twitter bot."""
+    ok = await twitter_bot_module.start_twitter_bot()
+    return {"ok": ok}
+
+
+@app.post("/api/twitter/stop")
+async def twitter_stop():
+    """Stop the Twitter bot."""
+    await twitter_bot_module.stop_twitter_bot()
+    return {"ok": True}
+
+
+# ── Twitter Setup Page ──────────────────────────────────────
+
+@app.get("/twitter-setup", response_class=HTMLResponse)
+async def twitter_setup_page():
+    """Serve the Twitter cookies setup page for mobile users."""
+    html_path = os.path.expanduser("~/nanabot/sections/twitter/setup.html")
+    with open(html_path, "r") as f:
+        return f.read()
 
 
 @app.get("/api/cookies/status")

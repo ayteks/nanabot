@@ -165,3 +165,58 @@ async def alert_chat_follow(user_name: str) -> None:
 async def alert_chat_mention(user_name: str, comment: str) -> None:
     """Alert when someone mentions the bot in chat."""
     return  # Disabled — only live/offline alerts are sent
+
+
+async def alert_twitter_post(text: str, tweet_id: str | None = None) -> None:
+    """Post a tweet notification to the Twitter Discord channel."""
+    channel_id = os.getenv("TWITTER_DISCORD_CHANNEL", "")
+    if not channel_id:
+        return
+    url = f"https://x.com/Socandyshopfr/status/{tweet_id}" if tweet_id else None
+    embed: dict[str, Any] = {
+        "title": "🐦 Nouveau tweet",
+        "description": text[:4096],
+        "color": 0x1DA1F2,  # Twitter blue
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    if url:
+        embed["url"] = url
+    payload: dict[str, Any] = {"embeds": [embed]}
+    await _send_message(channel_id, payload)
+
+
+async def alert_twitter_like(author: str, text_snippet: str, tweet_url: str, keyword: str) -> None:
+    """Post a like notification to the Twitter Discord channel."""
+    channel_id = os.getenv("TWITTER_DISCORD_CHANNEL", "")
+    if not channel_id:
+        return
+    embed: dict[str, Any] = {
+        "title": "❤️ Tweet liké",
+        "description": f"**@{author}** : {text_snippet}",
+        "url": tweet_url,
+        "color": 0x1DA1F2,
+        "fields": [{"name": "Mot-clé", "value": keyword, "inline": True}],
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    payload: dict[str, Any] = {"embeds": [embed]}
+    await _send_message(channel_id, payload)
+
+
+async def alert_twitter_reply(our_reply: str, original_text: str, original_author: str, tweet_url: str, keyword: str = "") -> None:
+    """Post a reply notification to the Twitter Discord channel with context."""
+    channel_id = os.getenv("TWITTER_DISCORD_CHANNEL", "")
+    if not channel_id:
+        return
+    description = f"**Réponse :** {our_reply[:400]}"
+    description += f"\n\n**En réponse à @{original_author} :** {(original_text or '')[:300]}"
+    embed: dict[str, Any] = {
+        "title": "💬 Réponse tweetée",
+        "description": description,
+        "url": tweet_url,
+        "color": 0x1DA1F2,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    if keyword:
+        embed["fields"] = [{"name": "Mot-clé", "value": keyword, "inline": True}]
+    payload: dict[str, Any] = {"embeds": [embed]}
+    await _send_message(channel_id, payload)
